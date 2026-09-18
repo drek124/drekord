@@ -1,9 +1,25 @@
-"""Drekord data models."""
+"""Drekord v2.0 data models.
+
+Every model is a "live" object — it holds a reference to the HTTP client
+so you can call methods directly on it::
+
+    channel = await client.fetch_channel(channel_id)
+    await channel.send("Hello!")
+
+    message = await channel.fetch_message(message_id)
+    await message.delete(reason="Cleanup")
+
+    user = await client.fetch_user(user_id)
+    print(user.display_name)
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .http import HTTPClient
 
 
 def _parse_snowflake(value: Any) -> int | None:
@@ -15,15 +31,13 @@ def _parse_snowflake(value: Any) -> int | None:
 def _parse_iso(value: Any) -> datetime | None:
     if value is None:
         return None
-    # Discord uses ISO-8601 with 'T' separator and 'Z' suffix
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def _parse_color(value: int | str) -> int:
-    """Parse a color value (``0x5865F2`` or ``'#5865F2'``) into an int :3."""
+    """Parse a color value (``0x5865F2`` or ``'#5865F2'``) into an int."""
     if isinstance(value, int):
         return value
-    # Strip leading '#' or '0x'
     hex_str = value.lstrip("#").lstrip("0x")
     return int(hex_str, 16)
 
@@ -31,12 +45,11 @@ def _parse_color(value: int | str) -> int:
 class _BaseModel:
     """Thin wrapper around a raw payload dict providing attribute access."""
 
-    __slots__ = ("_data",)
+    __slots__ = ("_data", "_http")
 
-    def __init__(self, data: dict[str, Any]):
+    def __init__(self, data: dict[str, Any], http: HTTPClient | None = None):
         object.__setattr__(self, "_data", data)
-
-    # attribute / item access 
+        object.__setattr__(self, "_http", http)
 
     def __getattr__(self, name: str) -> Any:
         try:
@@ -70,7 +83,8 @@ class _BaseModel:
 
 
 
-# Discord Snowflake IDs
+# Snowflake
+
 
 
 class Snowflake:
@@ -115,8 +129,16 @@ class Snowflake:
 # User
 
 
+
 class User(_BaseModel):
-    """Represents a Discord user."""
+    """Represents a Discord user.
+
+    This is a "live" object — you can call methods on it directly::
+
+        user = await client.fetch_user(user_id)
+        dm_channel = await user.create_dm()
+        await dm_channel.send("Hello!")
+    """
 
     __slots__ = ()
 
@@ -135,6 +157,11 @@ class User(_BaseModel):
     @property
     def global_name(self) -> str | None:
         return self._data.get("global_name")
+
+    @property
+    def display_name(self) -> str:
+        """Return the best available display name."""
+        return self.global_name or self.username
 
     @property
     def avatar(self) -> str | None:
@@ -184,10 +211,6 @@ class User(_BaseModel):
     def public_flags(self) -> int | None:
         return self._data.get("public_flags")
 
-    def display_name(self) -> str:
-        """Return the best available display name."""
-        return self.global_name or self.username
-
     def avatar_url(self, size: int = 128, fmt: str = "png") -> str | None:
         """Build the avatar CDN URL."""
         if self.avatar is None:
@@ -195,23 +218,58 @@ class User(_BaseModel):
         ext = "gif" if self.avatar.startswith("a_") else fmt
         return f"https://cdn.discordapp.com/avatars/{self.id}/{self.avatar}.{ext}?size={size}"
 
+    #  Live methods 
+
+    async def create_dm(self) -> Channel:
+        """Create a DM channel with this user. `POST /users/@me/channels`"""
+        if self._http is None:
+            raise RuntimeError("User object has no HTTP client — cannot call API methods")
+        data = await self._http.post(
+            "/users/@me/channels",
+            json={"recipient_id": self.id},
+        )
+        return Channel(data, self._http)
+
+    async def fetch(self) -> User:
+        """Re-fetch this user from the API. `GET /users/{id}`"""
+        if self._http is None:
+            raise RuntimeError("User object has no HTTP client — cannot call API methods")
+        data = await self._http.get(f"/users/{self.id}")
+        return User(data, self._http)
 
 
-# Member (Guild member = User + guild-specific data)
+
+# Member
+
 
 
 class Member(_BaseModel):
-    """Represents a guild member (a user within a guild)."""
+    """Represents a guild member (a user within a guild).
+
+    Live methods::
+
+        member = await guild.fetch_member(user_id)
+        await member.kick(reason="Rule violation")
+        await member.ban(reason="Spam")
+    """
 
     __slots__ = ()
 
     @property
     def user(self) -> User:
-        return User(self._data["user"])
+        return User(self._data["user"], self._http)
+
+    @property
+    def guild_id(self) -> int | None:
+        return _parse_snowflake(self._data.get("guild_id"))
 
     @property
     def nick(self) -> str | None:
         return self._data.get("nick")
+
+    @property
+    def display_name(self) -> str:
+        return self.nick or self.user.display_name
 
     @property
     def avatar(self) -> str | None:
@@ -245,16 +303,96 @@ class Member(_BaseModel):
     def communication_disabled_until(self) -> datetime | None:
         return _parse_iso(self._data.get("communication_disabled_until"))
 
-    def display_name(self) -> str:
-        return self.nick or self.user.display_name()
+    #  Live methods 
+
+    async def kick(self, *, reason: str | None = None) -> None:
+        """Kick this member. `DELETE /guilds/{guild_id}/members/{user_id}`"""
+        if self._http is None:
+            raise RuntimeError("Member object has no HTTP client")
+        headers = {}
+        if reason:
+            headers["X-Audit-Log-Reason"] = reason
+        guild_id = self.guild_id
+        if guild_id is None:
+            raise ValueError("Member object has no guild_id")
+        await self._http.delete(
+            f"/guilds/{guild_id}/members/{self.user.id}",
+            headers=headers,
+        )
+
+    async def ban(self, *, reason: str | None = None, delete_message_days: int | None = None) -> None:
+        """Ban this member. `PUT /guilds/{guild_id}/bans/{user_id}`"""
+        if self._http is None:
+            raise RuntimeError("Member object has no HTTP client")
+        guild_id = self.guild_id
+        if guild_id is None:
+            raise ValueError("Member object has no guild_id")
+        payload: dict[str, Any] = {}
+        if reason:
+            payload["reason"] = reason
+        if delete_message_days is not None:
+            payload["delete_message_days"] = delete_message_days
+        await self._http.put(
+            f"/guilds/{guild_id}/bans/{self.user.id}",
+            json=payload or None,
+            headers={"X-Audit-Log-Reason": reason} if reason else None,
+        )
+
+    async def edit(
+        self,
+        *,
+        nick: str | None = None,
+        roles: list[int] | None = None,
+        mute: bool | None = None,
+        deaf: bool | None = None,
+        channel_id: int | str | None = None,
+        communication_disabled_until: str | None = None,
+        flags: int | None = None,
+    ) -> Member:
+        """Edit this member. `PATCH /guilds/{guild_id}/members/{user_id}`"""
+        if self._http is None:
+            raise RuntimeError("Member object has no HTTP client")
+        guild_id = self.guild_id
+        if guild_id is None:
+            raise ValueError("Member object has no guild_id")
+        payload: dict[str, Any] = {}
+        if nick is not None:
+            payload["nick"] = nick
+        if roles is not None:
+            payload["roles"] = roles
+        if mute is not None:
+            payload["mute"] = mute
+        if deaf is not None:
+            payload["deaf"] = deaf
+        if channel_id is not None:
+            payload["channel_id"] = int(channel_id)
+        if communication_disabled_until is not None:
+            payload["communication_disabled_until"] = communication_disabled_until
+        if flags is not None:
+            payload["flags"] = flags
+        data = await self._http.patch(
+            f"/guilds/{guild_id}/members/{self.user.id}",
+            json=payload,
+        )
+        return Member(data, self._http)
 
 
 
 # Guild
 
 
+
 class Guild(_BaseModel):
-    """Represents a Discord guild (server)."""
+    """Represents a Discord guild (server).
+
+    Live methods::
+
+        guild = await client.fetch_guild(guild_id)
+        channels = await guild.fetch_channels()
+        members = await guild.fetch_members(limit=100)
+        roles = await guild.fetch_roles()
+        await guild.leave()
+    """
 
     __slots__ = ()
 
@@ -312,11 +450,11 @@ class Guild(_BaseModel):
 
     @property
     def roles(self) -> list[Role]:
-        return [Role(r) for r in self._data.get("roles", [])]
+        return [Role(r, self._http) for r in self._data.get("roles", [])]
 
     @property
     def emojis(self) -> list[Emoji]:
-        return [Emoji(e) for e in self._data.get("emojis", [])]
+        return [Emoji(e, self._http) for e in self._data.get("emojis", [])]
 
     @property
     def features(self) -> list[str]:
@@ -402,9 +540,125 @@ class Guild(_BaseModel):
         ext = "gif" if self.banner.startswith("a_") else fmt
         return f"https://cdn.discordapp.com/banners/{self.id}/{self.banner}.{ext}?size={size}"
 
+    #  Live methods 
+
+    async def fetch_channels(self) -> list[Channel]:
+        """Get all channels in this guild. `GET /guilds/{id}/channels`"""
+        if self._http is None:
+            raise RuntimeError("Guild object has no HTTP client")
+        data = await self._http.get(f"/guilds/{self.id}/channels")
+        return [Channel(c, self._http) for c in data]
+
+    async def create_channel(self, payload: dict[str, Any]) -> Channel:
+        """Create a channel in this guild. `POST /guilds/{id}/channels`"""
+        if self._http is None:
+            raise RuntimeError("Guild object has no HTTP client")
+        data = await self._http.post(f"/guilds/{self.id}/channels", json=payload)
+        return Channel(data, self._http)
+
+    async def fetch_members(self, *, limit: int = 1, after: int | str | None = None) -> list[Member]:
+        """List members in this guild. `GET /guilds/{id}/members`"""
+        if self._http is None:
+            raise RuntimeError("Guild object has no HTTP client")
+        params: dict[str, Any] = {"limit": limit}
+        if after is not None:
+            params["after"] = int(after)
+        data = await self._http.get(f"/guilds/{self.id}/members", params=params)
+        return [Member(m, self._http) for m in data]
+
+    async def fetch_member(self, user_id: int | str) -> Member:
+        """Get a specific member. `GET /guilds/{id}/members/{user_id}`"""
+        if self._http is None:
+            raise RuntimeError("Guild object has no HTTP client")
+        data = await self._http.get(f"/guilds/{self.id}/members/{user_id}")
+        return Member(data, self._http)
+
+    async def search_members(self, query: str, *, limit: int = 1) -> list[Member]:
+        """Search members by username prefix. `GET /guilds/{id}/members/search`"""
+        if self._http is None:
+            raise RuntimeError("Guild object has no HTTP client")
+        data = await self._http.get(
+            f"/guilds/{self.id}/members/search",
+            params={"query": query, "limit": limit},
+        )
+        return [Member(m, self._http) for m in data]
+
+    async def fetch_roles(self) -> list[Role]:
+        """List all roles. `GET /guilds/{id}/roles`"""
+        if self._http is None:
+            raise RuntimeError("Guild object has no HTTP client")
+        data = await self._http.get(f"/guilds/{self.id}/roles")
+        return [Role(r, self._http) for r in data]
+
+    async def create_role(self, payload: dict[str, Any]) -> Role:
+        """Create a role. `POST /guilds/{id}/roles`"""
+        if self._http is None:
+            raise RuntimeError("Guild object has no HTTP client")
+        data = await self._http.post(f"/guilds/{self.id}/roles", json=payload)
+        return Role(data, self._http)
+
+    async def fetch_emojis(self) -> list[Emoji]:
+        """List all emojis. `GET /guilds/{id}/emojis`"""
+        if self._http is None:
+            raise RuntimeError("Guild object has no HTTP client")
+        data = await self._http.get(f"/guilds/{self.id}/emojis")
+        return [Emoji(e, self._http) for e in data]
+
+    async def fetch_bans(self) -> list[dict[str, Any]]:
+        """List bans. `GET /guilds/{id}/bans`"""
+        if self._http is None:
+            raise RuntimeError("Guild object has no HTTP client")
+        return await self._http.get(f"/guilds/{self.id}/bans")
+
+    async def ban_user(self, user_id: int | str, **kwargs: Any) -> None:
+        """Ban a user from this guild. `PUT /guilds/{id}/bans/{user_id}`"""
+        if self._http is None:
+            raise RuntimeError("Guild object has no HTTP client")
+        await self._http.put(f"/guilds/{self.id}/bans/{user_id}", json=kwargs or None)
+
+    async def unban_user(self, user_id: int | str) -> None:
+        """Unban a user. `DELETE /guilds/{id}/bans/{user_id}`"""
+        if self._http is None:
+            raise RuntimeError("Guild object has no HTTP client")
+        await self._http.delete(f"/guilds/{self.id}/bans/{user_id}")
+
+    async def fetch_audit_logs(
+        self, *, limit: int = 50, user_id: int | str | None = None, action_type: int | None = None
+    ) -> list[AuditLogEntry]:
+        """Get the audit log. `GET /guilds/{id}/audit-logs`"""
+        if self._http is None:
+            raise RuntimeError("Guild object has no HTTP client")
+        params: dict[str, Any] = {"limit": limit}
+        if user_id is not None:
+            params["user_id"] = int(user_id)
+        if action_type is not None:
+            params["action_type"] = action_type
+        data = await self._http.get(f"/guilds/{self.id}/audit-logs", params=params)
+        entries = data.get("audit_log_entries", [])
+        return [AuditLogEntry(e, self._http) for e in entries]
+
+    async def edit(self, payload: dict[str, Any]) -> Guild:
+        """Edit this guild. `PATCH /guilds/{id}`"""
+        if self._http is None:
+            raise RuntimeError("Guild object has no HTTP client")
+        data = await self._http.patch(f"/guilds/{self.id}", json=payload)
+        return Guild(data, self._http)
+
+    async def leave(self) -> None:
+        """Leave this guild. `DELETE /users/@me/guilds/{id}`"""
+        if self._http is None:
+            raise RuntimeError("Guild object has no HTTP client")
+        await self._http.delete(f"/users/@me/guilds/{self.id}")
+
+    async def delete(self) -> None:
+        """Delete this guild (must be owner). `DELETE /guilds/{id}`"""
+        if self._http is None:
+            raise RuntimeError("Guild object has no HTTP client")
+        await self._http.delete(f"/guilds/{self.id}")
+
 
 class GuildPreview(_BaseModel):
-    """Partial guild info from the preview endpoint (no auth required for discovery)."""
+    """Partial guild info from the preview endpoint."""
 
     __slots__ = ()
 
@@ -434,7 +688,7 @@ class GuildPreview(_BaseModel):
 
     @property
     def emojis(self) -> list[Emoji]:
-        return [Emoji(e) for e in self._data.get("emojis", [])]
+        return [Emoji(e, self._http) for e in self._data.get("emojis", [])]
 
     @property
     def features(self) -> list[str]:
@@ -445,8 +699,22 @@ class GuildPreview(_BaseModel):
 # Channel
 
 
+
 class Channel(_BaseModel):
-    """Represents a Discord channel."""
+    """Represents a Discord channel.
+
+    This is a "live" object — you can call methods directly on it::
+
+        channel = await client.fetch_channel(channel_id)
+        await channel.send("Hello!")
+        messages = await channel.fetch_messages(limit=10)
+        await channel.edit(name="new-name")
+
+    Channel type constants:
+        TEXT = 0, DM = 1, VOICE = 2, GROUP_DM = 3, CATEGORY = 4,
+        ANNOUNCEMENT = 5, ANNOUNCEMENT_THREAD = 10, PUBLIC_THREAD = 11,
+        PRIVATE_THREAD = 12, STAGE = 13, FORUM = 15
+    """
 
     # Channel type constants
     TEXT = 0
@@ -513,7 +781,7 @@ class Channel(_BaseModel):
 
     @property
     def permission_overwrites(self) -> list[PermissionOverwrite]:
-        return [PermissionOverwrite(o) for o in self._data.get("permission_overwrites", [])]
+        return [PermissionOverwrite(o, self._http) for o in self._data.get("permission_overwrites", [])]
 
     @property
     def default_auto_archive_duration(self) -> int | None:
@@ -530,7 +798,7 @@ class Channel(_BaseModel):
     @property
     def default_reaction_emoji(self) -> Emoji | None:
         raw = self._data.get("default_reaction_emoji")
-        return Emoji(raw) if raw else None
+        return Emoji(raw, self._http) if raw else None
 
     @property
     def available_tags(self) -> list[dict[str, Any]]:
@@ -548,27 +816,232 @@ class Channel(_BaseModel):
     def type_name(self) -> str:
         """Human-readable channel type name."""
         _types = {
-            0: "text",
-            1: "dm",
-            2: "voice",
-            3: "group_dm",
-            4: "category",
-            5: "announcement",
-            10: "announcement_thread",
-            11: "public_thread",
-            12: "private_thread",
-            13: "stage",
-            15: "forum",
+            0: "text", 1: "dm", 2: "voice", 3: "group_dm",
+            4: "category", 5: "announcement", 10: "announcement_thread",
+            11: "public_thread", 12: "private_thread", 13: "stage", 15: "forum",
         }
         return _types.get(self.type, "unknown")
+
+    #  Live methods 
+
+    async def send(
+        self,
+        *,
+        content: str | None = None,
+        embeds: list[Embed | dict[str, Any]] | None = None,
+        tts: bool = False,
+        flags: int | None = None,
+        allowed_mentions: dict[str, Any] | None = None,
+        message_reference: dict[str, Any] | None = None,
+        components: list[dict[str, Any]] | None = None,
+        sticker_ids: list[int | str] | None = None,
+        nonce: str | int | None = None,
+        enforce_nonce: bool = False,
+        files: list[tuple[str, Any, str]] | None = None,
+        view: Any | None = None,
+    ) -> Message:
+        """Send a message to this channel.
+
+        Usage::
+
+            channel = await client.fetch_channel(channel_id)
+            msg = await channel.send(content="Hello!", tts=False)
+            await channel.send(embeds=[embed])
+            await channel.send(view=my_layout_view)
+        """
+        if self._http is None:
+            raise RuntimeError("Channel object has no HTTP client")
+
+        from .ui.view import LayoutView
+
+        payload: dict[str, Any] = {}
+
+        # Components V2: view takes precedence
+        if view is not None and isinstance(view, LayoutView):
+            view_payload = view.to_payload()
+            payload.update(view_payload)
+        else:
+            if content is not None:
+                payload["content"] = content
+            if embeds is not None:
+                payload["embeds"] = _serialize_embeds(embeds)
+            if tts:
+                payload["tts"] = True
+            if components is not None:
+                payload["components"] = components
+            if sticker_ids is not None:
+                payload["sticker_ids"] = [int(s) for s in sticker_ids]
+
+        if flags is not None:
+            payload["flags"] = flags
+        if allowed_mentions is not None:
+            payload["allowed_mentions"] = allowed_mentions
+        if message_reference is not None:
+            payload["message_reference"] = message_reference
+        if nonce is not None:
+            payload["nonce"] = nonce
+        if enforce_nonce:
+            payload["enforce_nonce"] = True
+
+        # File uploads (multipart)
+        if files:
+            import json
+            import aiohttp
+            form = aiohttp.FormData()
+            if payload:
+                form.add_field(
+                    "payload_json",
+                    json.dumps(payload),
+                    content_type="application/json",
+                )
+            for i, (filename, fileobj, content_type) in enumerate(files):
+                form.add_field(
+                    f"files[{i}]",
+                    fileobj,
+                    filename=filename,
+                    content_type=content_type,
+                )
+            data = await self._http.post(
+                f"/channels/{self.id}/messages",
+                data=form,
+                headers={"Content-Type": None},
+            )
+        else:
+            data = await self._http.post(
+                f"/channels/{self.id}/messages",
+                json=payload,
+            )
+        return Message(data, self._http)
+
+    async def fetch_messages(
+        self,
+        *,
+        around: int | str | None = None,
+        before: int | str | None = None,
+        after: int | str | None = None,
+        limit: int = 50,
+    ) -> list[Message]:
+        """List messages in this channel. `GET /channels/{id}/messages`"""
+        if self._http is None:
+            raise RuntimeError("Channel object has no HTTP client")
+        params: dict[str, Any] = {"limit": limit}
+        if around is not None:
+            params["around"] = int(around)
+        if before is not None:
+            params["before"] = int(before)
+        if after is not None:
+            params["after"] = int(after)
+        data = await self._http.get(f"/channels/{self.id}/messages", params=params)
+        return [Message(m, self._http) for m in data]
+
+    async def fetch_message(self, message_id: int | str) -> Message:
+        """Get a specific message. `GET /channels/{id}/messages/{message_id}`"""
+        if self._http is None:
+            raise RuntimeError("Channel object has no HTTP client")
+        data = await self._http.get(f"/channels/{self.id}/messages/{message_id}")
+        return Message(data, self._http)
+
+    async def edit(
+        self,
+        *,
+        name: str | None = None,
+        topic: str | None = None,
+        position: int | None = None,
+        nsfw: bool | None = None,
+        bitrate: int | None = None,
+        user_limit: int | None = None,
+        rate_limit_per_user: int | None = None,
+        parent_id: int | str | None = None,
+        **kwargs: Any,
+    ) -> Channel:
+        """Edit this channel. `PATCH /channels/{id}`"""
+        if self._http is None:
+            raise RuntimeError("Channel object has no HTTP client")
+        payload: dict[str, Any] = {}
+        if name is not None:
+            payload["name"] = name
+        if topic is not None:
+            payload["topic"] = topic
+        if position is not None:
+            payload["position"] = position
+        if nsfw is not None:
+            payload["nsfw"] = nsfw
+        if bitrate is not None:
+            payload["bitrate"] = bitrate
+        if user_limit is not None:
+            payload["user_limit"] = user_limit
+        if rate_limit_per_user is not None:
+            payload["rate_limit_per_user"] = rate_limit_per_user
+        if parent_id is not None:
+            payload["parent_id"] = int(parent_id)
+        payload.update(kwargs)
+        data = await self._http.patch(f"/channels/{self.id}", json=payload)
+        return Channel(data, self._http)
+
+    async def delete(self) -> None:
+        """Delete this channel. `DELETE /channels/{id}`"""
+        if self._http is None:
+            raise RuntimeError("Channel object has no HTTP client")
+        await self._http.delete(f"/channels/{self.id}")
+
+    async def typing(self) -> None:
+        """Trigger a typing indicator. `POST /channels/{id}/typing`"""
+        if self._http is None:
+            raise RuntimeError("Channel object has no HTTP client")
+        await self._http.post(f"/channels/{self.id}/typing")
+
+    async def fetch_invites(self) -> list[dict[str, Any]]:
+        """List invites for this channel. `GET /channels/{id}/invites`"""
+        if self._http is None:
+            raise RuntimeError("Channel object has no HTTP client")
+        return await self._http.get(f"/channels/{self.id}/invites")
+
+    async def set_permissions(
+        self,
+        overwrite_id: int | str,
+        *,
+        allow: str | None = None,
+        deny: str | None = None,
+        type: int = 0,
+    ) -> None:
+        """Set a permission overwrite. `PUT /channels/{id}/permissions/{overwrite_id}`"""
+        if self._http is None:
+            raise RuntimeError("Channel object has no HTTP client")
+        payload: dict[str, Any] = {"type": type}
+        if allow is not None:
+            payload["allow"] = allow
+        if deny is not None:
+            payload["deny"] = deny
+        await self._http.put(
+            f"/channels/{self.id}/permissions/{overwrite_id}",
+            json=payload,
+        )
+
+    async def follow(self, webhook_channel_id: int | str) -> dict[str, Any]:
+        """Follow an announcement channel. `POST /channels/{id}/followers`"""
+        if self._http is None:
+            raise RuntimeError("Channel object has no HTTP client")
+        return await self._http.post(
+            f"/channels/{self.id}/followers",
+            json={"webhook_channel_id": int(webhook_channel_id)},
+        )
 
 
 
 # Message
 
 
+
 class Message(_BaseModel):
-    """Represents a Discord message."""
+    """Represents a Discord message.
+
+    This is a "live" object — you can call methods directly on it::
+
+        message = await channel.fetch_message(msg_id)
+        await message.edit(content="Edited!")
+        await message.delete(reason="Cleanup")
+        await message.pin()
+    """
 
     __slots__ = ()
 
@@ -587,7 +1060,7 @@ class Message(_BaseModel):
     @property
     def author(self) -> User | None:
         raw = self._data.get("author")
-        return User(raw) if raw else None
+        return User(raw, self._http) if raw else None
 
     @property
     def content(self) -> str:
@@ -611,7 +1084,7 @@ class Message(_BaseModel):
 
     @property
     def mentions(self) -> list[User]:
-        return [User(u) for u in self._data.get("mentions", [])]
+        return [User(u, self._http) for u in self._data.get("mentions", [])]
 
     @property
     def mention_roles(self) -> list[int]:
@@ -619,15 +1092,15 @@ class Message(_BaseModel):
 
     @property
     def mention_channels(self) -> list[Channel]:
-        return [Channel(c) for c in self._data.get("mention_channels", [])]
+        return [Channel(c, self._http) for c in self._data.get("mention_channels", [])]
 
     @property
     def attachments(self) -> list[Attachment]:
-        return [Attachment(a) for a in self._data.get("attachments", [])]
+        return [Attachment(a, self._http) for a in self._data.get("attachments", [])]
 
     @property
     def embeds(self) -> list[Embed]:
-        return [Embed(e) for e in self._data.get("embeds", [])]
+        return [Embed(e, self._http) for e in self._data.get("embeds", [])]
 
     @property
     def reactions(self) -> list[dict[str, Any]]:
@@ -664,11 +1137,106 @@ class Message(_BaseModel):
     @property
     def thread(self) -> Channel | None:
         raw = self._data.get("thread")
-        return Channel(raw) if raw else None
+        return Channel(raw, self._http) if raw else None
+
+    #  Live methods 
+
+    async def edit(
+        self,
+        *,
+        content: str | None = None,
+        embeds: list[Embed | dict[str, Any]] | None = None,
+        flags: int | None = None,
+        allowed_mentions: dict[str, Any] | None = None,
+        components: list[dict[str, Any]] | None = None,
+        attachments: list[dict[str, Any]] | None = None,
+        view: Any | None = None,
+    ) -> Message:
+        """Edit this message. `PATCH /channels/{channel_id}/messages/{id}`"""
+        if self._http is None:
+            raise RuntimeError("Message object has no HTTP client")
+
+        from .ui.view import LayoutView
+
+        payload: dict[str, Any] = {}
+
+        if view is not None and isinstance(view, LayoutView):
+            view_payload = view.to_payload()
+            payload.update(view_payload)
+        else:
+            if content is not None:
+                payload["content"] = content
+            if embeds is not None:
+                payload["embeds"] = _serialize_embeds(embeds)
+            if components is not None:
+                payload["components"] = components
+
+        if flags is not None:
+            payload["flags"] = flags
+        if allowed_mentions is not None:
+            payload["allowed_mentions"] = allowed_mentions
+        if attachments is not None:
+            payload["attachments"] = attachments
+
+        data = await self._http.patch(
+            f"/channels/{self.channel_id}/messages/{self.id}",
+            json=payload,
+        )
+        return Message(data, self._http)
+
+    async def delete(self, *, reason: str | None = None) -> None:
+        """Delete this message. `DELETE /channels/{channel_id}/messages/{id}`"""
+        if self._http is None:
+            raise RuntimeError("Message object has no HTTP client")
+        headers = {}
+        if reason:
+            headers["X-Audit-Log-Reason"] = reason
+        await self._http.delete(
+            f"/channels/{self.channel_id}/messages/{self.id}",
+            headers=headers or None,
+        )
+
+    async def pin(self) -> None:
+        """Pin this message. `PUT /channels/{channel_id}/pins/{id}`"""
+        if self._http is None:
+            raise RuntimeError("Message object has no HTTP client")
+        await self._http.put(f"/channels/{self.channel_id}/pins/{self.id}")
+
+    async def unpin(self) -> None:
+        """Unpin this message. `DELETE /channels/{channel_id}/pins/{id}`"""
+        if self._http is None:
+            raise RuntimeError("Message object has no HTTP client")
+        await self._http.delete(f"/channels/{self.channel_id}/pins/{self.id}")
+
+    async def add_reaction(self, emoji: str) -> None:
+        """Add a reaction. `PUT /channels/{channel_id}/messages/{id}/reactions/{emoji}/@me`"""
+        if self._http is None:
+            raise RuntimeError("Message object has no HTTP client")
+        await self._http.put(
+            f"/channels/{self.channel_id}/messages/{self.id}/reactions/{emoji}/@me"
+        )
+
+    async def remove_reaction(self, emoji: str) -> None:
+        """Remove your reaction. `DELETE /channels/{channel_id}/messages/{id}/reactions/{emoji}/@me`"""
+        if self._http is None:
+            raise RuntimeError("Message object has no HTTP client")
+        await self._http.delete(
+            f"/channels/{self.channel_id}/messages/{self.id}/reactions/{emoji}/@me"
+        )
+
+    async def crosspost(self) -> Message:
+        """Crosspost (publish) an announcement. `POST /channels/{channel_id}/messages/{id}/crosspost`"""
+        if self._http is None:
+            raise RuntimeError("Message object has no HTTP client")
+        data = await self._http.post(
+            f"/channels/{self.channel_id}/messages/{self.id}/crosspost"
+        )
+        return Message(data, self._http)
 
 
 
 # Role
+
 
 
 class Role(_BaseModel):
@@ -720,9 +1288,31 @@ class Role(_BaseModel):
     def tags(self) -> dict[str, Any] | None:
         return self._data.get("tags")
 
+    #  Live methods 
+
+    async def edit(self, payload: dict[str, Any]) -> Role:
+        """Edit this role. `PATCH /guilds/{guild_id}/roles/{id}`"""
+        if self._http is None:
+            raise RuntimeError("Role object has no HTTP client")
+        guild_id = self._data.get("guild_id")
+        if guild_id is None:
+            raise ValueError("Role object has no guild_id")
+        data = await self._http.patch(f"/guilds/{guild_id}/roles/{self.id}", json=payload)
+        return Role(data, self._http)
+
+    async def delete(self) -> None:
+        """Delete this role. `DELETE /guilds/{guild_id}/roles/{id}`"""
+        if self._http is None:
+            raise RuntimeError("Role object has no HTTP client")
+        guild_id = self._data.get("guild_id")
+        if guild_id is None:
+            raise ValueError("Role object has no guild_id")
+        await self._http.delete(f"/guilds/{guild_id}/roles/{self.id}")
+
 
 
 # Emoji
+
 
 
 class Emoji(_BaseModel):
@@ -745,7 +1335,7 @@ class Emoji(_BaseModel):
     @property
     def user(self) -> User | None:
         raw = self._data.get("user")
-        return User(raw) if raw else None
+        return User(raw, self._http) if raw else None
 
     @property
     def require_colons(self) -> bool:
@@ -765,9 +1355,19 @@ class Emoji(_BaseModel):
         ext = "gif" if self._data.get("animated") else "png"
         return f"https://cdn.discordapp.com/emojis/{self.id}.{ext}?size={size}"
 
+    async def delete(self) -> None:
+        """Delete this emoji. `DELETE /guilds/{guild_id}/emojis/{id}`"""
+        if self._http is None:
+            raise RuntimeError("Emoji object has no HTTP client")
+        guild_id = self._data.get("guild_id")
+        if guild_id is None:
+            raise ValueError("Emoji object has no guild_id")
+        await self._http.delete(f"/guilds/{guild_id}/emojis/{self.id}")
+
 
 
 # Attachment
+
 
 
 class Attachment(_BaseModel):
@@ -829,7 +1429,8 @@ class Attachment(_BaseModel):
 
 
 
-# Embed (builder for outbound, read-only wrapper for inbound)
+# Embed
+
 
 
 class Embed(_BaseModel):
@@ -842,27 +1443,22 @@ class Embed(_BaseModel):
         embed = Embed(title="Hello", description="World", color=0x5865F2)
         embed.set_thumbnail(url="https://example.com/thumb.png")
         embed.add_field(name="Field 1", value="Value 1")
-        embed.add_field(name="Field 2", value="Value 2", inline=True)
-        embed.set_footer(text="Footer text", icon_url="https://example.com/icon.png")
-        embed.set_image(url="https://example.com/image.png")
-        embed.set_author(name="Author", url="https://example.com", icon_url="https://example.com/icon.png")
 
-        await client.messages.channel(ch).send(embeds=[embed])
+        await channel.send(embeds=[embed])
 
     **2. Read-only (from API responses):**
 
-        msg = await client.messages.channel(ch).get(msg_id)
-        for embed in msg.embeds:
+        message = await channel.fetch_message(msg_id)
+        for embed in message.embeds:
             print(embed.title)
-            print(embed.description)
-            for field in embed.fields:
-                print(f"  {field.name}: {field.value}")
     """
 
     __slots__ = ("_fields",)
 
     def __init__(
         self,
+        data: dict[str, Any] | None = None,
+        http: HTTPClient | None = None,
         *,
         title: str | None = None,
         description: str | None = None,
@@ -870,23 +1466,28 @@ class Embed(_BaseModel):
         color: int | str | None = None,
         timestamp: str | datetime | None = None,
     ):
-        data: dict[str, Any] = {}
-        if title is not None:
-            data["title"] = title
-        if description is not None:
-            data["description"] = description
-        if url is not None:
-            data["url"] = url
-        if color is not None:
-            data["color"] = _parse_color(color)
-        if timestamp is not None:
-            if isinstance(timestamp, datetime):
-                data["timestamp"] = timestamp.isoformat()
-            else:
-                data["timestamp"] = timestamp
-        super().__init__(data)
+        if data is not None:
+            # Reading from API — use provided data
+            super().__init__(data, http)
+        else:
+            # Builder mode — construct from kwargs
+            init_data: dict[str, Any] = {}
+            if title is not None:
+                init_data["title"] = title
+            if description is not None:
+                init_data["description"] = description
+            if url is not None:
+                init_data["url"] = url
+            if color is not None:
+                init_data["color"] = _parse_color(color)
+            if timestamp is not None:
+                if isinstance(timestamp, datetime):
+                    init_data["timestamp"] = timestamp.isoformat()
+                else:
+                    init_data["timestamp"] = timestamp
+            super().__init__(init_data, http)
 
-    #  Read-only properties 
+    # Read-only properties
 
     @property
     def title(self) -> str | None:
@@ -915,22 +1516,22 @@ class Embed(_BaseModel):
     @property
     def footer(self) -> EmbedFooter | None:
         raw = self._data.get("footer")
-        return EmbedFooter(raw) if raw else None
+        return EmbedFooter(raw, self._http) if raw else None
 
     @property
     def image(self) -> EmbedImage | None:
         raw = self._data.get("image")
-        return EmbedImage(raw) if raw else None
+        return EmbedImage(raw, self._http) if raw else None
 
     @property
     def thumbnail(self) -> EmbedImage | None:
         raw = self._data.get("thumbnail")
-        return EmbedImage(raw) if raw else None
+        return EmbedImage(raw, self._http) if raw else None
 
     @property
     def video(self) -> EmbedImage | None:
         raw = self._data.get("video")
-        return EmbedImage(raw) if raw else None
+        return EmbedImage(raw, self._http) if raw else None
 
     @property
     def provider(self) -> dict[str, Any] | None:
@@ -939,45 +1540,41 @@ class Embed(_BaseModel):
     @property
     def author(self) -> EmbedAuthor | None:
         raw = self._data.get("author")
-        return EmbedAuthor(raw) if raw else None
+        return EmbedAuthor(raw, self._http) if raw else None
 
     @property
     def fields(self) -> list[EmbedField]:
-        return [EmbedField(f) for f in self._data.get("fields", [])]
+        return [EmbedField(f, self._http) for f in self._data.get("fields", [])]
 
     # Class methods
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Embed:
-        """Create an Embed from a raw API payload dict (for reading inbound embeds)."""
+    def from_dict(cls, data: dict[str, Any], http: HTTPClient | None = None) -> Embed:
+        """Create an Embed from a raw API payload dict."""
         instance = cls.__new__(cls)
         object.__setattr__(instance, "_data", dict(data))
+        object.__setattr__(instance, "_http", http)
         return instance
 
     # Builder methods (mutate in-place, return self for chaining)
 
     def set_title(self, title: str) -> Embed:
-        """Set the embed title."""
         self._data["title"] = title
         return self
 
     def set_description(self, description: str) -> Embed:
-        """Set the embed description."""
         self._data["description"] = description
         return self
 
     def set_url(self, url: str) -> Embed:
-        """Set the embed URL (makes the title a hyperlink)."""
         self._data["url"] = url
         return self
 
     def set_color(self, color: int | str) -> Embed:
-        """Set the embed color. Accepts an int (``0x5865F2``) or hex string (``'#5865F2'``)."""
         self._data["color"] = _parse_color(color)
         return self
 
     def set_timestamp(self, timestamp: str | datetime | None = None) -> Embed:
-        """Set the embed timestamp. Pass ``None`` to use the current time."""
         if timestamp is None:
             timestamp = datetime.now().astimezone()
         if isinstance(timestamp, datetime):
@@ -994,7 +1591,6 @@ class Embed(_BaseModel):
         icon_url: str | None = None,
         proxy_icon_url: str | None = None,
     ) -> Embed:
-        """Set the embed author."""
         author: dict[str, Any] = {"name": name}
         if url is not None:
             author["url"] = url
@@ -1012,7 +1608,6 @@ class Embed(_BaseModel):
         icon_url: str | None = None,
         proxy_icon_url: str | None = None,
     ) -> Embed:
-        """Set the embed footer."""
         footer: dict[str, Any] = {"text": text}
         if icon_url is not None:
             footer["icon_url"] = icon_url
@@ -1022,7 +1617,6 @@ class Embed(_BaseModel):
         return self
 
     def set_image(self, *, url: str, proxy_url: str | None = None, height: int | None = None, width: int | None = None) -> Embed:
-        """Set the embed image."""
         image: dict[str, Any] = {"url": url}
         if proxy_url is not None:
             image["proxy_url"] = proxy_url
@@ -1034,7 +1628,6 @@ class Embed(_BaseModel):
         return self
 
     def set_thumbnail(self, *, url: str, proxy_url: str | None = None, height: int | None = None, width: int | None = None) -> Embed:
-        """Set the embed thumbnail."""
         thumb: dict[str, Any] = {"url": url}
         if proxy_url is not None:
             thumb["proxy_url"] = proxy_url
@@ -1046,41 +1639,28 @@ class Embed(_BaseModel):
         return self
 
     def add_field(self, *, name: str, value: str, inline: bool = False) -> Embed:
-        """Add a field to the embed. Fields are displayed in order."""
         if "fields" not in self._data:
             self._data["fields"] = []
-        self._data["fields"].append({
-            "name": name,
-            "value": value,
-            "inline": inline,
-        })
+        self._data["fields"].append({"name": name, "value": value, "inline": inline})
         return self
 
     def remove_field(self, index: int) -> Embed:
-        """Remove a field by index."""
         fields = self._data.get("fields", [])
         if 0 <= index < len(fields):
             fields.pop(index)
         return self
 
     def clear_fields(self) -> Embed:
-        """Remove all fields."""
         self._data["fields"] = []
         return self
 
     def insert_field(self, index: int, *, name: str, value: str, inline: bool = False) -> Embed:
-        """Insert a field at a specific index."""
         if "fields" not in self._data:
             self._data["fields"] = []
-        self._data["fields"].insert(index, {
-            "name": name,
-            "value": value,
-            "inline": inline,
-        })
+        self._data["fields"].insert(index, {"name": name, "value": value, "inline": inline})
         return self
 
     def set_video(self, *, url: str, height: int | None = None, width: int | None = None) -> Embed:
-        """Set the embed video."""
         video: dict[str, Any] = {"url": url}
         if height is not None:
             video["height"] = height
@@ -1088,8 +1668,6 @@ class Embed(_BaseModel):
             video["width"] = width
         self._data["video"] = video
         return self
-
-    # Serialization
 
     def to_dict(self) -> dict[str, Any]:
         """Return the payload dict suitable for sending to Discord."""
@@ -1194,6 +1772,7 @@ class EmbedAuthor(_BaseModel):
 # PermissionOverwrite
 
 
+
 class PermissionOverwrite(_BaseModel):
     """Represents a permission overwrite for a channel."""
 
@@ -1218,6 +1797,7 @@ class PermissionOverwrite(_BaseModel):
 
 
 # Voice Region
+
 
 
 class VoiceRegion(_BaseModel):
@@ -1256,6 +1836,7 @@ class VoiceRegion(_BaseModel):
 
 
 # Integration
+
 
 
 class Integration(_BaseModel):
@@ -1302,7 +1883,7 @@ class Integration(_BaseModel):
     @property
     def user(self) -> User | None:
         raw = self._data.get("user")
-        return User(raw) if raw else None
+        return User(raw, self._http) if raw else None
 
     @property
     def account(self) -> dict[str, Any]:
@@ -1315,6 +1896,7 @@ class Integration(_BaseModel):
 
 
 # Audit Log
+
 
 
 class AuditLogEntry(_BaseModel):
@@ -1355,8 +1937,17 @@ class AuditLogEntry(_BaseModel):
 # Webhook
 
 
+
 class Webhook(_BaseModel):
-    """Represents a webhook."""
+    """Represents a webhook.
+
+    Live methods::
+
+        webhook = await client.fetch_webhook(webhook_id)
+        await webhook.execute(content="Hello!", username="Bot")
+        await webhook.edit(name="New Name")
+        await webhook.delete()
+    """
 
     __slots__ = ()
 
@@ -1379,7 +1970,7 @@ class Webhook(_BaseModel):
     @property
     def user(self) -> User | None:
         raw = self._data.get("user")
-        return User(raw) if raw else None
+        return User(raw, self._http) if raw else None
 
     @property
     def name(self) -> str | None:
@@ -1400,3 +1991,90 @@ class Webhook(_BaseModel):
     @property
     def url(self) -> str | None:
         return self._data.get("url")
+
+    #  Live methods 
+
+    async def execute(
+        self,
+        *,
+        content: str | None = None,
+        embeds: list[Embed | dict[str, Any]] | None = None,
+        username: str | None = None,
+        avatar_url: str | None = None,
+        tts: bool = False,
+        wait: bool = False,
+        thread_id: int | str | None = None,
+        view: Any | None = None,
+    ) -> Message | None:
+        """Execute (send via) this webhook."""
+        if self._http is None:
+            raise RuntimeError("Webhook object has no HTTP client")
+        if self.token is None:
+            raise ValueError("Webhook has no token — cannot execute")
+
+        from .ui.view import LayoutView
+
+        payload: dict[str, Any] = {}
+
+        if view is not None and isinstance(view, LayoutView):
+            view_payload = view.to_payload()
+            payload.update(view_payload)
+        else:
+            if content is not None:
+                payload["content"] = content
+            if embeds is not None:
+                payload["embeds"] = _serialize_embeds(embeds)
+
+        if username is not None:
+            payload["username"] = username
+        if avatar_url is not None:
+            payload["avatar_url"] = avatar_url
+        if tts:
+            payload["tts"] = True
+
+        params: dict[str, Any] = {"wait": str(wait).lower()}
+        if thread_id is not None:
+            params["thread_id"] = int(thread_id)
+
+        if view is not None and isinstance(view, LayoutView):
+            params["with_components"] = "true"
+
+        data = await self._http.post(
+            f"/webhooks/{self.id}/{self.token}",
+            json=payload,
+            params=params,
+        )
+        if data is None:
+            return None
+        return Message(data, self._http)
+
+    async def edit(self, payload: dict[str, Any]) -> Webhook:
+        """Edit this webhook. `PATCH /webhooks/{id}`"""
+        if self._http is None:
+            raise RuntimeError("Webhook object has no HTTP client")
+        data = await self._http.patch(f"/webhooks/{self.id}", json=payload)
+        return Webhook(data, self._http)
+
+    async def delete(self) -> None:
+        """Delete this webhook. `DELETE /webhooks/{id}`"""
+        if self._http is None:
+            raise RuntimeError("Webhook object has no HTTP client")
+        await self._http.delete(f"/webhooks/{self.id}")
+
+
+
+# Helper: serialize embeds
+
+
+
+def _serialize_embeds(embeds: list[Embed | dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert a list of Embed objects (or dicts) to dicts for the API payload."""
+    result = []
+    for e in embeds:
+        if isinstance(e, Embed):
+            result.append(e.to_dict())
+        elif isinstance(e, dict):
+            result.append(e)
+        else:
+            raise TypeError(f"Expected Embed or dict, got {type(e).__name__}")
+    return result

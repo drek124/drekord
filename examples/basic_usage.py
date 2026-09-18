@@ -1,87 +1,82 @@
 """
-Basic usage example for Drekord.
+Basic usage example for Drekord
 
-This script demonstrates common operations:
+This script demonstrates common operations::
 - Logging in and getting bot info
 - Reading messages from a channel
 - Sending a message with an embed
 - Listing guilds and channels
-
-
 """
 
 import asyncio
 import drekord
 
 
-TOKEN = "YOUR_BOT_TOKEN" # better to use .env instead of string but u get the point
-CHANNEL_ID = 6777777777777777777  
+TOKEN = "YOUR_BOT_TOKEN"
+CHANNEL_ID = 6777777777777777777
 
 
 async def main():
-    # Create the client as an async context manager
     async with drekord.Client(token=TOKEN) as client:
 
-        #  Get the current bot user 
-        me = await client.users.me()
+        #  Get the current bot user
+        me = await client.me()
         print(f"Logged in as: {me.username} (ID: {me.id})")
         print(f"Bot? {me.bot}")
         print()
 
-        #  List the bot's guilds 
-        guilds = await client.guilds.list()
+        #  List the bot's guilds
+        guilds = await client.fetch_guilds()
         print(f"The bot is in {len(guilds)} guild(s):")
         for guild in guilds:
             print(f"  - {guild.name} (ID: {guild.id})")
         print()
 
-        #  List channels in the first guild 
+        #  List channels in the first guild
         if guilds:
             first_guild = guilds[0]
-            channels = await client.guilds.channels(first_guild.id).list()
+            channels = await first_guild.fetch_channels()
             text_channels = [c for c in channels if c.type == 0]
             print(f"Text channels in {first_guild.name}:")
             for ch in text_channels:
                 print(f"  #{ch.name} (ID: {ch.id})")
             print()
 
-        #  Read the last 5 messages from a channel 
-        messages = await client.messages.channel(CHANNEL_ID).list(limit=5)
-        print(f"Last {len(messages)} messages in channel {CHANNEL_ID}:")
+        #  Read the last 5 messages from a channel
+        channel = await client.fetch_channel(CHANNEL_ID)
+        messages = await channel.fetch_messages(limit=5)
+        print(f"Last {len(messages)} messages in #{channel.name}:")
         for msg in messages:
-            author = msg.author.display_name() if msg.author else "Unknown"
+            author = msg.author.display_name if msg.author else "Unknown"
             print(f"  [{author}] {msg.content}")
         print()
 
-        #  Send a message with an embed 
+        #  Send a message with an embed
         embed = drekord.Embed(
             title="Hello from Drek! 🎉",
             description="This message was sent using the Drekord library.",
-            color="#5865F2",  # Discord blurple owo
+            color="#5865F2",
         )
-        embed.set_footer(text="Drekord v0.1.0")
+        embed.set_footer(text="Drekord v2.0.0")
 
-        sent_msg = await client.messages.channel(CHANNEL_ID).send(
+        sent_msg = await channel.send(
             content="Check out this embed:",
             embeds=[embed],
         )
         print(f"Sent message ID: {sent_msg.id}")
         print(f"Message content: {sent_msg.content}")
 
-        #  Edit the message we just sent 
-        await client.messages.channel(CHANNEL_ID).edit(
-            sent_msg.id,
-            content="This message has been edited",
-        )
+        #  Edit the message we just sent
+        await sent_msg.edit(content="This message has been edited")
         print("Message edited.")
 
-        #  Get a specific user 
-        user = await client.users.get(472390873733136385)
+        #  Get a specific user
+        user = await client.fetch_user(472390873733136385)
         print(f"\nFetched user: {user.username} (ID: {user.id})")
         if user.avatar:
             print(f"Avatar URL: {user.avatar_url()}")
 
-        #  Raw request (escape hatch) 
+        #  Raw request (escape hatch)
         gateway = await client.request("GET", "/gateway")
         print(f"\nGateway URL: {gateway.get('url')}")
 

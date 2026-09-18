@@ -1,5 +1,5 @@
 """
-Components V2 example for Drekord.
+Components V2 example for Drekord B)
 
 Demonstrates building rich, structured messages using the
 drekord.ui LayoutView system (Discord's COMPONENTS_V2).
@@ -26,20 +26,21 @@ from drekord.ui import (
 
 
 TOKEN = "YOUR_BOT_TOKEN"
-CHANNEL_ID = 67777777777777777777 
+CHANNEL_ID = 67777777777777777777
 
 
 async def main():
     async with drekord.Client(token=TOKEN) as client:
+        channel = await client.fetch_channel(CHANNEL_ID)
 
-        #  1. Simple text display 
+        #  1. Simple text display
         view = LayoutView()
         view.add_item(TextDisplay("# Hello from Drekord! 🎉"))
         view.add_item(TextDisplay("This message uses **Components V2**"))
-        await client.messages.channel(CHANNEL_ID).send(view=view)
+        await channel.send(view=view)
         print("Sent simple text display.")
 
-        #  2. Container with accent color 
+        #  2. Container with accent color
         view = LayoutView()
         container = Container(
             TextDisplay("## Server Stats"),
@@ -48,13 +49,13 @@ async def main():
             accent_color="#5865F2",
         )
         view.add_item(container)
-        await client.messages.channel(CHANNEL_ID).send(view=view)
+        await channel.send(view=view)
         print("Sent container with accent color.")
 
-        #  3. Section with thumbnail 
+        #  3. Section with thumbnail
         view = LayoutView()
         section = Section(
-            TextDisplay("## Game Update v2.0"),
+            TextDisplay("## Drekord Update v2.0"),
             TextDisplay("New features, bug fixes, and more!"),
             accessory=Thumbnail(
                 media="https://example.com/update-banner.png",
@@ -62,10 +63,10 @@ async def main():
             ),
         )
         view.add_item(section)
-        await client.messages.channel(CHANNEL_ID).send(view=view)
+        await channel.send(view=view)
         print("Sent section with thumbnail.")
 
-        #  4. Buttons 
+        #  4. Buttons
         view = LayoutView()
         container = Container(
             TextDisplay("## Vote below!"),
@@ -78,7 +79,6 @@ async def main():
         row.add_item(Button(label="Info", style=2, custom_id="vote_info"))
         container.add_item(row)
 
-        # Link button in its own action row
         link_row = ActionRow()
         link_row.add_item(Button(
             label="Learn More",
@@ -88,10 +88,10 @@ async def main():
         container.add_item(link_row)
 
         view.add_item(container)
-        await client.messages.channel(CHANNEL_ID).send(view=view)
+        await channel.send(view=view)
         print("Sent buttons.")
 
-        #  5. Select menu 
+        #  5. Select menu
         view = LayoutView()
         container = Container(
             TextDisplay("## Choose your class:"),
@@ -111,10 +111,10 @@ async def main():
         ))
         container.add_item(row)
         view.add_item(container)
-        await client.messages.channel(CHANNEL_ID).send(view=view)
+        await channel.send(view=view)
         print("Sent select menu.")
 
-        #  6. Media gallery 
+        #  6. Media gallery
         view = LayoutView()
         view.add_item(TextDisplay("## Screenshot gallery"))
         gallery = MediaGallery(
@@ -133,24 +133,23 @@ async def main():
             ),
         )
         view.add_item(gallery)
-        await client.messages.channel(CHANNEL_ID).send(view=view)
+        await channel.send(view=view)
         print("Sent media gallery.")
 
-        #  7. File component 
+        #  7. File component
         view = LayoutView()
         view.add_item(TextDisplay("## Download the patch notes:"))
         view.add_item(File(media="attachment://patch_notes.pdf"))
         # Note: You'd also pass the actual file in the files parameter:
-        # await client.messages.channel(CHANNEL_ID).send(
+        # await channel.send(
         #     view=view,
         #     files=[("patch_notes.pdf", open("patch_notes.pdf", "rb"), "application/pdf")],
         # )
         print("(File component example — not sent without actual file)")
 
-        #  8. Complex nested layout 
+        #  8. Complex nested layout
         view = LayoutView()
 
-        # Header container
         header = Container(
             TextDisplay("# 🎮 Weekly Tournament"),
             TextDisplay("Sign up now for this weekend's tournament!"),
@@ -160,7 +159,6 @@ async def main():
 
         view.add_item(Separator(spacing=2))
 
-        # Info container
         info = Container(
             TextDisplay("## Details"),
             TextDisplay("**Date:** Saturday, 8 PM UTC\n**Prize:** $500\n**Format:** 5v5"),
@@ -170,14 +168,13 @@ async def main():
 
         view.add_item(Separator())
 
-        # Action buttons
         action_row = ActionRow()
         action_row.add_item(Button(label="Sign Up", style=1, custom_id="signup"))
         action_row.add_item(Button(label="Rules", style=2, custom_id="rules"))
         action_row.add_item(Button(label="Discord", style=5, url="https://example.com/discord"))
         view.add_item(action_row)
 
-        await client.messages.channel(CHANNEL_ID).send(view=view)
+        await channel.send(view=view)
         print("Sent complex nested layout.")
 
 

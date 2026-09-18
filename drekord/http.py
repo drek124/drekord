@@ -94,7 +94,7 @@ class HTTPClient:
     def _default_headers(self) -> dict[str, str]:
         return {
             "Authorization": self._token,
-            "User-Agent": "DiscordBot (https://github.com/drek124/drekord, 0.1.0)",
+            "User-Agent": "DiscordBot (https://github.com/drek124/drekord, 2.0.0)",
             "Content-Type": "application/json",
         }
 

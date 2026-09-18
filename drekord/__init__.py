@@ -1,33 +1,36 @@
 """
-Drekord - A lightweight, async Discord REST API wrapper.
+# Drekord Discord API Wrapper
+Async Discord REST API wrapper.
 
 Drekord is not a bot framework. It is a pure API client designed to be
 integrated into any async application that needs to interact with the
 Discord REST API — read messages, send messages, manage channels, etc.
 
-Usage::
+v2.0 uses a discord.py-inspired API where you work with live objects::
 
     import drekord
 
     async with drekord.Client(token="your_token") as client:
-        # Basic message
-        await client.messages.channel(ch).send(content="Hello!")
+        # Fetch and use channels directly
+        channel = await client.fetch_channel(channel_id)
+        await channel.send("Hello, world!")
 
-        # With an embed
-        embed = drekord.Embed(title="Hi", description="World")
-        await client.messages.channel(ch).send(embeds=[embed])
+        # Fetch messages and interact with them
+        message = await channel.fetch_message(msg_id)
+        await message.edit(content="Edited!")
+        await message.delete(reason="Cleanup")
 
-        # With Components V2
-        view = drekord.ui.LayoutView()
-        view.add_item(drekord.ui.Container(
-            drekord.ui.TextDisplay("## Hello!"),
-            drekord.ui.Separator(),
-            accent_color="#5865F2",
-        ))
-        await client.messages.channel(ch).send(view=view)
+        # Work with users
+        user = await client.fetch_user(user_id)
+        print(user.display_name)
+
+        # Work with guilds
+        guild = await client.fetch_guild(guild_id)
+        members = await guild.fetch_members(limit=100)
+        channels = await guild.fetch_channels()
 """
 
-__version__ = "0.1.0"
+__version__ = "2.0.0"
 __author__ = "drek124"
 
 from .client import Client
@@ -43,6 +46,7 @@ from .exceptions import (
 )
 from .models import (
     User,
+    Member,
     Guild,
     Channel,
     Message,
@@ -74,6 +78,7 @@ __all__ = [
     "UnauthorizedError",
     "DiscordServerError",
     "User",
+    "Member",
     "Guild",
     "Channel",
     "Message",

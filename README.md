@@ -2,14 +2,14 @@
 
 A lightweight, async Discord REST API wrapper for Python.
 
-BTW, Drekord is **not** a bot framework (like `discord.py`). It is a pure REST API client designed to be integrated into any async application that needs to interact with the Discord API, without maintaining a persistent WebSocket connection.
+> **Drekord is NOT a bot framework** (like `discord.py`). It is a pure REST API client designed to be integrated into any async application that needs to interact with the Discord API, without maintaining a persistent WebSocket connection.
 
 ## Features
-- **Pure REST:** No WebSocket gateway; just API calls
+- **Pure REST:** No WebSocket gateway; just API calls x)
 - **Fully async:** Built on `aiohttp` for clean `async/await` usage
-- **Object-oriented:** Making it ez to use x)
-- **Rate-limit aware:** Automatic retry on rate limits and transient errors
-
+- **Object-Oriented:** Call methods directly on channels, messages, users, guilds, etc.
+- **discord.py-inspired:** Familiar API if you've used discord.py before
+- **Rate-limit awareness:** Automatic retry on rate limits and transient errors
 
 ## Installation
 
@@ -35,17 +35,16 @@ import drekord
 async def main():
     async with drekord.Client(token="YOUR_BOT_TOKEN") as client:
         # Get the current bot user
-        me = await client.users.me()
+        me = await client.me()
         print(f"Logged in as {me.username}")
 
-        # Send a message to a channel
-        msg = await client.messages.channel(CHANNEL_ID).send(
-            content="Hello from Drekord! 🎉"
-        )
+        # Fetch a channel and send a message
+        channel = await client.fetch_channel(CHANNEL_ID)
+        msg = await channel.send(content="Hello from Drekord! 🎉")
         print(f"Sent message {msg.id}")
 
         # Read the last 10 messages
-        messages = await client.messages.channel(CHANNEL_ID).list(limit=10)
+        messages = await channel.fetch_messages(limit=10)
         for m in messages:
             print(f"{m.author.username}: {m.content}")
 
@@ -55,133 +54,183 @@ asyncio.run(main())
 
 ## API Overview
 
-All API access is through resource classes on the `Client`:
+### Client Methods
+
+Top-level `fetch_*` methods on the client:
 
 ```python
-client.users       # UsersResource
-client.guilds      # GuildResource
-client.messages    # MessagesResource
-client.channels    # ChannelResource
-client.webhooks    # WebhooksResource
-client.invites     # InvitesResource
-client.emojis      # EmojiResource
-```
-
-### Users
-
-```python
-# Current bot user
-me = await client.users.me()
-
-# Get any user
-user = await client.users.get(user_id)
-
-# Create a DM
-dm_channel = await client.users.dm(user_id)
-
-# Edit the bot's username/avatar
-me = await client.users.edit({"username": "new_name"})
-```
-
-### Messages
-
-```python
-# List messages in a channel
-messages = await client.messages.channel(channel_id).list(limit=50)
-
-# Send a message
-msg = await client.messages.channel(channel_id).send(
-    content="Hello!",
-    embeds=[{"title": "My Embed", "description": "With an embed!"}],
-)
-
-# Edit a message
-msg = await client.messages.channel(channel_id).edit(message_id, content="Edited!")
-
-# Delete a message
-await client.messages.channel(channel_id).delete(message_id)
-
-# Pin / unpin
-await client.messages.channel(channel_id).pin(message_id)
-await client.messages.channel(channel_id).unpin(message_id)
-
-# Bulk delete
-await client.messages.bulk_delete(channel_id, [msg1_id, msg2_id, msg3_id])
-```
-
-### Guilds
-
-```python
-# List bot's guilds
-guilds = await client.guilds.list()
-
-# Get a guild
-guild = await client.guilds.get(guild_id)
-print(f"{guild.name} has {guild.approximate_member_count} members")
-
-# Edit guild settings
-await client.guilds.edit(guild_id, {"name": "New Name"})
-
-# Leave a guild
-await client.guilds.leave(guild_id)
-```
-
-### Guild Sub-Resources
-
-```python
-# Channels
-channels = await client.guilds.channels(guild_id).list()
-new_channel = await client.guilds.channels(guild_id).create({
-    "name": "new-channel",
-    "type": 0,  # text channel
-})
-
-# Members
-members = await client.guilds.members(guild_id).list(limit=100)
-member = await client.guilds.members(guild_id).get(user_id)
-
-# Roles
-roles = await client.guilds.roles(guild_id).list()
-new_role = await client.guilds.roles(guild_id).create({"name": "Moderator", "color": 0xFF0000})
-
-# Emojis
-emojis = await client.guilds.emojis(guild_id).list()
+await client.me()                              # Current bot user
+await client.fetch_user(user_id)               # Any user
+await client.fetch_channel(channel_id)         # Any channel
+await client.fetch_message(channel_id, msg_id) # A specific message
+await client.fetch_guilds()                    # List bot's guilds
+await client.fetch_guild(guild_id)             # A specific guild
+await client.fetch_member(guild_id, user_id)   # A guild member
+await client.fetch_webhook(webhook_id)         # A webhook
+await client.fetch_webhooks(channel_id)        # Webhooks in a channel
 ```
 
 ### Channels
 
 ```python
-channel = await client.channels.get(channel_id)
+channel = await client.fetch_channel(channel_id)
 
-# Edit a channel
-channel = await client.channels.edit(channel_id, {"name": "renamed"})
+# Send messages
+msg = await channel.send(content="Hello!", tts=False)
+msg = await channel.send(embeds=[embed])
+msg = await channel.send(view=layout_view)  # Components V2
 
-# Set permissions
-await client.channels.set_permissions(channel_id, overwrite_id, allow="1024", deny="0")
+# Read messages
+messages = await channel.fetch_messages(limit=50)
+message = await channel.fetch_message(message_id)
 
-# Trigger typing indicator
-await client.channels.typing(channel_id)
+# Edit the channel
+channel = await channel.edit(name="renamed", topic="New topic")
+
+# Delete the channel
+await channel.delete()
+
+# Typing indicator
+await channel.typing()
+
+# Invites
+invites = await channel.fetch_invites()
+```
+
+### Messages
+
+```python
+message = await channel.fetch_message(msg_id)
+
+# Edit
+await message.edit(content="Edited!")
+
+# Delete
+await message.delete(reason="Cleanup requested")
+
+# Pin/Unpin
+await message.pin()
+await message.unpin()
+
+# Reactions
+await message.add_reaction("👍")
+await message.remove_reaction("👍")
+
+# Crosspost (announcements)
+await message.crosspost()
+```
+
+### Users
+
+```python
+user = await client.fetch_user(user_id)
+
+# Properties
+print(user.username)
+print(user.display_name)  # global_name or username
+print(user.avatar_url())
+
+# Create DM
+dm_channel = await user.create_dm()
+
+# Re-fetch
+user = await user.fetch()
+```
+
+### Guilds
+
+```python
+guild = await client.fetch_guild(guild_id)
+
+# Properties
+print(guild.name)
+
+# Fetch sub-resources
+channels = await guild.fetch_channels()
+members = await guild.fetch_members(limit=100)
+roles = await guild.fetch_roles()
+emojis = await guild.fetch_emojis()
+bans = await guild.fetch_bans()
+audit_logs = await guild.fetch_audit_logs(limit=50)
+
+# Create
+new_channel = await guild.create_channel({"name": "new-channel", "type": 0})
+new_role = await guild.create_role({"name": "Moderator", "color": 0xFF0000})
+
+# Edit
+guild = await guild.edit({"name": "New Name"})
+
+# Leave / Delete
+await guild.leave()
+await guild.delete()
+```
+
+### Members
+
+```python
+member = await client.fetch_member(guild_id, user_id)
+
+# Properties
+print(member.display_name)
+print(member.roles)
+print(member.joined_at)
+
+# Actions
+await member.kick(reason="Rule violation")
+await member.ban(reason="Spam", delete_message_days=7)
+await member.edit(nick="New Nick", roles=[role_id1, role_id2])
 ```
 
 ### Webhooks
 
 ```python
-# List webhooks in a channel
-webhooks = await client.webhooks.channel_webhooks(channel_id)
+webhook = await client.fetch_webhook(webhook_id)
 
-# Create a webhook
-webhook = await client.webhooks.create(channel_id, name="My Webhook")
+# Execute (send)
+await webhook.execute(content="Hello!", username="Bot")
+await webhook.execute(embeds=[embed], wait=True)
 
-# Execute a webhook (send via webhook)
-await client.webhooks.execute(
-    webhook.id,
-    token=webhook.token,
-    content="Posted via webhook!",
-    username="Drekord Bot",
+# Edit
+await webhook.edit({"name": "New Name"})
+
+# Delete
+await webhook.delete()
+```
+
+### Embeds
+
+```python
+embed = drekord.Embed(
+    title="Hello",
+    description="World",
+    color=0x5865F2,
+)
+embed.set_thumbnail(url="https://example.com/thumb.png")
+embed.add_field(name="Field 1", value="Value 1", inline=True)
+embed.set_footer(text="Footer text")
+
+await channel.send(embeds=[embed])
+```
+
+### Components V2
+
+```python
+from drekord.ui import (
+    LayoutView, Container, TextDisplay, Separator,
+    ActionRow, Button, Section, Thumbnail,
 )
 
-# Delete a webhook
-await client.webhooks.delete(webhook.id)
+view = LayoutView()
+view.add_item(Container(
+    TextDisplay("## Hello World"),
+    Separator(),
+    ActionRow(
+        Button(label="Click Me", style=1, custom_id="btn_1"),
+    ),
+    accent_color="#5865F2",
+))
+
+await channel.send(view=view)
 ```
 
 ### Raw Requests (Escape Hatch)
@@ -201,7 +250,7 @@ Drekord raises typed exceptions for all error cases:
 import drekord
 
 try:
-    msg = await client.messages.channel(channel_id).send(content="Hello!")
+    msg = await channel.send(content="Hello!")
 except drekord.ForbiddenError:
     print("I don't have permission to send messages here!")
 except drekord.NotFoundError:
@@ -230,24 +279,22 @@ DrekordError
 All API responses are returned as model objects with typed properties:
 
 ```python
-user = await client.users.get(user_id)
+user = await client.fetch_user(user_id)
 print(user.id)            # int
 print(user.username)      # str
-print(user.global_name)   # str | None
+print(user.display_name)  # str (global_name or username)
 print(user.bot)           # bool
 print(user.avatar_url())  # str | None
 
-guild = await client.guilds.get(guild_id)
-print(guild.name)         # str
-print(guild.icon_url())   # str | None
-print(guild.roles)        # list[Role]
-```
+channel = await client.fetch_channel(channel_id)
+print(channel.id)         # int
+print(channel.name)       # str | None
+print(channel.type_name)  # str ("text", "voice", etc.)
 
-Models also support dict-style access for unmapped fields:
-
-```python
-user_data = user.raw           # Get the raw dict
-custom = user.get("custom_status")  # Access any field
+message = await channel.fetch_message(msg_id)
+print(message.content)    # str
+print(message.author)     # User | None
+print(message.embeds)     # list[Embed]
 ```
 
 ## License
