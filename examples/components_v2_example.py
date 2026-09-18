@@ -1,5 +1,5 @@
 """
-Components V2 example for Drekord B)
+Components V2 example for Drekord v2.0.
 
 Demonstrates building rich, structured messages using the
 drekord.ui LayoutView system (Discord's COMPONENTS_V2).

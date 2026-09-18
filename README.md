@@ -40,7 +40,7 @@ async def main():
 
         # Fetch a channel and send a message
         channel = await client.fetch_channel(CHANNEL_ID)
-        msg = await channel.send(content="Hello from Drekord! 🎉")
+        msg = await channel.send("Hello from Drekord! 🎉")
         print(f"Sent message {msg.id}")
 
         # Read the last 10 messages
@@ -76,7 +76,7 @@ await client.fetch_webhooks(channel_id)        # Webhooks in a channel
 channel = await client.fetch_channel(channel_id)
 
 # Send messages
-msg = await channel.send(content="Hello!", tts=False)
+msg = await channel.send("Hello!", tts=False)
 msg = await channel.send(embeds=[embed])
 msg = await channel.send(view=layout_view)  # Components V2
 
@@ -130,7 +130,11 @@ print(user.username)
 print(user.display_name)  # global_name or username
 print(user.avatar_url())
 
-# Create DM
+# Send a DM (auto-creates DM channel)
+await user.send("Hello!")
+await user.send("Check this out!", embeds=[embed])
+
+# Or create the DM channel explicitly
 dm_channel = await user.create_dm()
 
 # Re-fetch
@@ -187,7 +191,7 @@ await member.edit(nick="New Nick", roles=[role_id1, role_id2])
 webhook = await client.fetch_webhook(webhook_id)
 
 # Execute (send)
-await webhook.execute(content="Hello!", username="Bot")
+await webhook.execute("Hello!", username="Bot")
 await webhook.execute(embeds=[embed], wait=True)
 
 # Edit
@@ -250,7 +254,7 @@ Drekord raises typed exceptions for all error cases:
 import drekord
 
 try:
-    msg = await channel.send(content="Hello!")
+    msg = await channel.send("Hello!")
 except drekord.ForbiddenError:
     print("I don't have permission to send messages here!")
 except drekord.NotFoundError:

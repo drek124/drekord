@@ -82,9 +82,9 @@ class _BaseModel:
         return hash(self.id)  # type: ignore[attr-defined]
 
 
-
+# ======================================================================
 # Snowflake
-
+# ======================================================================
 
 
 class Snowflake:
@@ -125,9 +125,9 @@ class Snowflake:
         return hash(self._value)
 
 
-
+# ======================================================================
 # User
-
+# ======================================================================
 
 
 class User(_BaseModel):
@@ -230,6 +230,46 @@ class User(_BaseModel):
         )
         return Channel(data, self._http)
 
+    async def send(
+        self,
+        content: str | None = None,
+        *,
+        embeds: list[Embed | dict[str, Any]] | None = None,
+        tts: bool = False,
+        flags: int | None = None,
+        allowed_mentions: dict[str, Any] | None = None,
+        message_reference: dict[str, Any] | None = None,
+        components: list[dict[str, Any]] | None = None,
+        sticker_ids: list[int | str] | None = None,
+        nonce: str | int | None = None,
+        enforce_nonce: bool = False,
+        files: list[tuple[str, Any, str]] | None = None,
+        view: Any | None = None,
+    ) -> Message:
+        """Send a DM to this user. Automatically creates the DM channel if needed.
+
+        Usage::
+
+            user = await client.fetch_user(user_id)
+            await user.send("Hello!")
+            await user.send("Check this out!", embeds=[embed])
+        """
+        dm = await self.create_dm()
+        return await dm.send(
+            content,
+            embeds=embeds,
+            tts=tts,
+            flags=flags,
+            allowed_mentions=allowed_mentions,
+            message_reference=message_reference,
+            components=components,
+            sticker_ids=sticker_ids,
+            nonce=nonce,
+            enforce_nonce=enforce_nonce,
+            files=files,
+            view=view,
+        )
+
     async def fetch(self) -> User:
         """Re-fetch this user from the API. `GET /users/{id}`"""
         if self._http is None:
@@ -238,9 +278,9 @@ class User(_BaseModel):
         return User(data, self._http)
 
 
-
+# ======================================================================
 # Member
-
+# ======================================================================
 
 
 class Member(_BaseModel):
@@ -377,9 +417,9 @@ class Member(_BaseModel):
         return Member(data, self._http)
 
 
-
+# ======================================================================
 # Guild
-
+# ======================================================================
 
 
 class Guild(_BaseModel):
@@ -695,9 +735,9 @@ class GuildPreview(_BaseModel):
         return self._data.get("features", [])
 
 
-
+# ======================================================================
 # Channel
-
+# ======================================================================
 
 
 class Channel(_BaseModel):
@@ -826,8 +866,8 @@ class Channel(_BaseModel):
 
     async def send(
         self,
-        *,
         content: str | None = None,
+        *,
         embeds: list[Embed | dict[str, Any]] | None = None,
         tts: bool = False,
         flags: int | None = None,
@@ -845,7 +885,8 @@ class Channel(_BaseModel):
         Usage::
 
             channel = await client.fetch_channel(channel_id)
-            msg = await channel.send(content="Hello!", tts=False)
+            await channel.send("Hello!")
+            await channel.send("Hello!", tts=False)
             await channel.send(embeds=[embed])
             await channel.send(view=my_layout_view)
         """
@@ -1027,9 +1068,9 @@ class Channel(_BaseModel):
         )
 
 
-
+# ======================================================================
 # Message
-
+# ======================================================================
 
 
 class Message(_BaseModel):
@@ -1143,8 +1184,8 @@ class Message(_BaseModel):
 
     async def edit(
         self,
-        *,
         content: str | None = None,
+        *,
         embeds: list[Embed | dict[str, Any]] | None = None,
         flags: int | None = None,
         allowed_mentions: dict[str, Any] | None = None,
@@ -1234,9 +1275,9 @@ class Message(_BaseModel):
         return Message(data, self._http)
 
 
-
+# ======================================================================
 # Role
-
+# ======================================================================
 
 
 class Role(_BaseModel):
@@ -1310,9 +1351,9 @@ class Role(_BaseModel):
         await self._http.delete(f"/guilds/{guild_id}/roles/{self.id}")
 
 
-
+# ======================================================================
 # Emoji
-
+# ======================================================================
 
 
 class Emoji(_BaseModel):
@@ -1365,9 +1406,9 @@ class Emoji(_BaseModel):
         await self._http.delete(f"/guilds/{guild_id}/emojis/{self.id}")
 
 
-
+# ======================================================================
 # Attachment
-
+# ======================================================================
 
 
 class Attachment(_BaseModel):
@@ -1428,9 +1469,9 @@ class Attachment(_BaseModel):
         return self._data.get("flags")
 
 
-
+# ======================================================================
 # Embed
-
+# ======================================================================
 
 
 class Embed(_BaseModel):
@@ -1768,9 +1809,9 @@ class EmbedAuthor(_BaseModel):
         return self._data.get("proxy_icon_url")
 
 
-
+# ======================================================================
 # PermissionOverwrite
-
+# ======================================================================
 
 
 class PermissionOverwrite(_BaseModel):
@@ -1795,9 +1836,9 @@ class PermissionOverwrite(_BaseModel):
         return str(self._data.get("deny", "0"))
 
 
-
+# ======================================================================
 # Voice Region
-
+# ======================================================================
 
 
 class VoiceRegion(_BaseModel):
@@ -1834,9 +1875,9 @@ class VoiceRegion(_BaseModel):
         return self._data.get("regions")
 
 
-
+# ======================================================================
 # Integration
-
+# ======================================================================
 
 
 class Integration(_BaseModel):
@@ -1894,9 +1935,9 @@ class Integration(_BaseModel):
         return _parse_iso(self._data.get("synced_at"))
 
 
-
+# ======================================================================
 # Audit Log
-
+# ======================================================================
 
 
 class AuditLogEntry(_BaseModel):
@@ -1933,9 +1974,9 @@ class AuditLogEntry(_BaseModel):
         return self._data.get("reason")
 
 
-
+# ======================================================================
 # Webhook
-
+# ======================================================================
 
 
 class Webhook(_BaseModel):
@@ -1996,8 +2037,8 @@ class Webhook(_BaseModel):
 
     async def execute(
         self,
-        *,
         content: str | None = None,
+        *,
         embeds: list[Embed | dict[str, Any]] | None = None,
         username: str | None = None,
         avatar_url: str | None = None,
@@ -2062,9 +2103,9 @@ class Webhook(_BaseModel):
         await self._http.delete(f"/webhooks/{self.id}")
 
 
-
+# ======================================================================
 # Helper: serialize embeds
-
+# ======================================================================
 
 
 def _serialize_embeds(embeds: list[Embed | dict[str, Any]]) -> list[dict[str, Any]]:

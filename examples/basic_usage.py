@@ -1,7 +1,7 @@
 """
-Basic usage example for Drekord
+Basic usage example for Drekord v2.0.
 
-This script demonstrates common operations::
+This script demonstrates common operations with the new discord.py-inspired API:
 - Logging in and getting bot info
 - Reading messages from a channel
 - Sending a message with an embed
@@ -59,10 +59,7 @@ async def main():
         )
         embed.set_footer(text="Drekord v2.0.0")
 
-        sent_msg = await channel.send(
-            content="Check out this embed:",
-            embeds=[embed],
-        )
+        sent_msg = await channel.send("Check out this embed:", embeds=[embed])
         print(f"Sent message ID: {sent_msg.id}")
         print(f"Message content: {sent_msg.content}")
 

@@ -1,5 +1,5 @@
 """
-Webhook usage example for Drekord
+Webhook usage example for Drekord v2.0.
 
 Demonstrates creating and executing webhooks to send messages
 without needing bot permissions in the channel.
@@ -26,10 +26,7 @@ async def main():
         print(f"Created webhook: {webhook.name} (ID: {webhook.id})")
 
         #  Execute the webhook (send a message)
-        msg = await webhook.execute(
-            content="Hello from a webhook! 🪝",
-            username="Drekord Bot",
-        )
+        msg = await webhook.execute("Hello from a webhook! 🪝", username="Drekord Bot")
         if msg:
             print(f"Webhook sent message ID: {msg.id}")
 
