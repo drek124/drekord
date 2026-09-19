@@ -23,6 +23,7 @@ Component type IDs (from Discord API):
 
 from __future__ import annotations
 
+import random
 from typing import Any
 
 
@@ -36,9 +37,9 @@ def _parse_color(value: int | str | None) -> int | None:
     return int(hex_str, 16)
 
 
-# ======================================================================
+
 # Base
-# ======================================================================
+
 
 class Component:
     """Base class for all Components V2 components."""
@@ -59,9 +60,9 @@ class Component:
         return f"<{type(self).__name__}>"
 
 
-# ======================================================================
+
 # Data helper classes
-# ======================================================================
+
 
 class UnfurledMediaItem:
     """Represents an unfurled media item (URL or attachment reference)."""
@@ -140,9 +141,9 @@ class SelectOption:
         return f"<SelectOption label='{self._label}' value='{self._value}'>"
 
 
-# ======================================================================
+
 # Content components
-# ======================================================================
+
 
 class TextDisplay(Component):
     """Markdown text content component (type 10).
@@ -302,9 +303,9 @@ class File(Component):
         return f"<File>"
 
 
-# ======================================================================
+
 # Layout components
-# ======================================================================
+
 
 class Separator(Component):
     """Vertical spacing/divider between components (type 14).
@@ -553,9 +554,9 @@ class Container(Component):
         return f"<Container children={len(self._children)} accent_color={self._accent_color}>"
 
 
-# ======================================================================
+
 # Interactive components
-# ======================================================================
+
 
 class Button(Component):
     """A clickable button (type 2).
@@ -602,7 +603,7 @@ class Button(Component):
         super().__init__(id=id)
         self._label = label
         self._style = style
-        self._custom_id = custom_id
+        self._custom_id = custom_id if custom_id else str(random.randint(1000, 99999999))
         self._url = url
         self._sku_id = sku_id
         self._emoji = emoji

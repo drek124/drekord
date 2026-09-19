@@ -1,16 +1,17 @@
-"""Drekord v2.0 data models.
+"""Drekord data models.
 
 Every model is a "live" object — it holds a reference to the HTTP client
 so you can call methods directly on it::
+```python
+channel = await client.fetch_channel(channel_id)
+await channel.send("Hello!")
 
-    channel = await client.fetch_channel(channel_id)
-    await channel.send("Hello!")
+message = await channel.fetch_message(message_id)
+await message.delete(reason="Cleanup")
 
-    message = await channel.fetch_message(message_id)
-    await message.delete(reason="Cleanup")
-
-    user = await client.fetch_user(user_id)
-    print(user.display_name)
+user = await client.fetch_user(user_id)
+print(user.display_name)
+```
 """
 
 from __future__ import annotations
@@ -82,9 +83,9 @@ class _BaseModel:
         return hash(self.id)  # type: ignore[attr-defined]
 
 
-# ======================================================================
+
 # Snowflake
-# ======================================================================
+
 
 
 class Snowflake:
@@ -125,19 +126,17 @@ class Snowflake:
         return hash(self._value)
 
 
-# ======================================================================
+
 # User
-# ======================================================================
+
 
 
 class User(_BaseModel):
     """Represents a Discord user.
-
-    This is a "live" object — you can call methods on it directly::
-
+    ```python
         user = await client.fetch_user(user_id)
-        dm_channel = await user.create_dm()
-        await dm_channel.send("Hello!")
+        await user.send("Hello!")
+    ```
     """
 
     __slots__ = ()
@@ -278,9 +277,9 @@ class User(_BaseModel):
         return User(data, self._http)
 
 
-# ======================================================================
+
 # Member
-# ======================================================================
+
 
 
 class Member(_BaseModel):
@@ -417,9 +416,9 @@ class Member(_BaseModel):
         return Member(data, self._http)
 
 
-# ======================================================================
+
 # Guild
-# ======================================================================
+
 
 
 class Guild(_BaseModel):
@@ -735,9 +734,9 @@ class GuildPreview(_BaseModel):
         return self._data.get("features", [])
 
 
-# ======================================================================
+
 # Channel
-# ======================================================================
+
 
 
 class Channel(_BaseModel):
@@ -1068,9 +1067,9 @@ class Channel(_BaseModel):
         )
 
 
-# ======================================================================
+
 # Message
-# ======================================================================
+
 
 
 class Message(_BaseModel):
@@ -1275,9 +1274,9 @@ class Message(_BaseModel):
         return Message(data, self._http)
 
 
-# ======================================================================
+
 # Role
-# ======================================================================
+
 
 
 class Role(_BaseModel):
@@ -1351,9 +1350,9 @@ class Role(_BaseModel):
         await self._http.delete(f"/guilds/{guild_id}/roles/{self.id}")
 
 
-# ======================================================================
+
 # Emoji
-# ======================================================================
+
 
 
 class Emoji(_BaseModel):
@@ -1406,9 +1405,9 @@ class Emoji(_BaseModel):
         await self._http.delete(f"/guilds/{guild_id}/emojis/{self.id}")
 
 
-# ======================================================================
+
 # Attachment
-# ======================================================================
+
 
 
 class Attachment(_BaseModel):
@@ -1469,9 +1468,9 @@ class Attachment(_BaseModel):
         return self._data.get("flags")
 
 
-# ======================================================================
+
 # Embed
-# ======================================================================
+
 
 
 class Embed(_BaseModel):
@@ -1809,9 +1808,9 @@ class EmbedAuthor(_BaseModel):
         return self._data.get("proxy_icon_url")
 
 
-# ======================================================================
+
 # PermissionOverwrite
-# ======================================================================
+
 
 
 class PermissionOverwrite(_BaseModel):
@@ -1836,9 +1835,9 @@ class PermissionOverwrite(_BaseModel):
         return str(self._data.get("deny", "0"))
 
 
-# ======================================================================
+
 # Voice Region
-# ======================================================================
+
 
 
 class VoiceRegion(_BaseModel):
@@ -1875,9 +1874,9 @@ class VoiceRegion(_BaseModel):
         return self._data.get("regions")
 
 
-# ======================================================================
+
 # Integration
-# ======================================================================
+
 
 
 class Integration(_BaseModel):
@@ -1935,9 +1934,9 @@ class Integration(_BaseModel):
         return _parse_iso(self._data.get("synced_at"))
 
 
-# ======================================================================
+
 # Audit Log
-# ======================================================================
+
 
 
 class AuditLogEntry(_BaseModel):
@@ -1974,9 +1973,9 @@ class AuditLogEntry(_BaseModel):
         return self._data.get("reason")
 
 
-# ======================================================================
+
 # Webhook
-# ======================================================================
+
 
 
 class Webhook(_BaseModel):
@@ -2103,9 +2102,9 @@ class Webhook(_BaseModel):
         await self._http.delete(f"/webhooks/{self.id}")
 
 
-# ======================================================================
+
 # Helper: serialize embeds
-# ======================================================================
+
 
 
 def _serialize_embeds(embeds: list[Embed | dict[str, Any]]) -> list[dict[str, Any]]:

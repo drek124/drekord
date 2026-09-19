@@ -115,9 +115,9 @@ class Client:
         """Access the low-level HTTP client directly."""
         return self._http
 
-    # ======================================================================
+    
     # Top-level fetch methods (discord.py style)
-    # ======================================================================
+    
 
     #  Users 
 
