@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "drekord"
-version = "2.0.2"
+version = "2.0.3"
 description = "A lightweight, async Discord REST API wrapper for Python"
 readme = "README.md"
 license = "MIT"

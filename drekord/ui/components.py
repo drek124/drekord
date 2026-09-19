@@ -602,8 +602,8 @@ class Button(Component):
     ):
         super().__init__(id=id)
         self._label = label
-        self._style = style
-        self._custom_id = custom_id if custom_id else str(random.randint(1000, 99999999))
+        self._style = style if not url else Button.LINK
+        self._custom_id = custom_id if custom_id else (str(random.randint(1000, 99999999)) if not url else custom_id)
         self._url = url
         self._sku_id = sku_id
         self._emoji = emoji
